@@ -19,12 +19,13 @@ const port = 3000;
 const baseUrl = "http://0.0.0.0:8080";
 app.get("/reservations", (req, res, next) => {
     const { date, resourceId } = req.query;
+    const currentDate = new Date(date);
     try {
-        if (!date || !resourceId) {
-            throw new Error("date param or resourceId param is missing");
+        if (!currentDate || !resourceId) {
+            throw new Error("date is incorrect or missing or resourceId param is missing");
         }
         res.locals = {
-            date,
+            date: currentDate,
             resourceId,
         };
     }
@@ -35,29 +36,31 @@ app.get("/reservations", (req, res, next) => {
     next();
 }, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { date, resourceId } = res.locals;
-    const rawSlots = yield axios_1.default.get(`${baseUrl}/timetables?date=${date}&resourceId=${resourceId}`);
+    const rawSlots = yield axios_1.default.get(`${baseUrl}/timetables?date=${date
+        .toISOString()
+        .slice(0, 10)}&resourceId=${resourceId}`);
     const openingSlots = rawSlots.data;
     const { open, timetables } = openingSlots;
-    let totalOpened = 0;
-    for (const time of timetables) {
-        totalOpened +=
-            new Date(time.closing).getHours() - new Date(time.opening).getHours();
-    }
     if (!open) {
         return res.json({
             available: false,
         });
     }
-    const rawReservations = yield axios_1.default.get(`${baseUrl}/reservations?date=${date}&resourceId=${resourceId}`);
-    const reservations = rawReservations.data;
-    let totalReserved = 0;
-    for (const reservation of reservations.reservations) {
-        totalReserved +=
-            new Date(reservation.reservationEnd).getHours() -
-                new Date(reservation.reservationStart).getHours();
+    const isInOpenSlot = timetables.some((time) => date >= new Date(time.opening + "Z") &&
+        date <= new Date(time.closing + "Z"));
+    if (!isInOpenSlot) {
+        return res.json({
+            available: false,
+        });
     }
+    const rawReservations = yield axios_1.default.get(`${baseUrl}/reservations?date=${date
+        .toISOString()
+        .slice(0, 10)}&resourceId=${resourceId}`);
+    const { reservations } = rawReservations.data;
+    const isInReservation = reservations.some((resa) => date >= new Date(resa.reservationStart + "Z") &&
+        date <= new Date(resa.reservationEnd + "Z"));
     return res.json({
-        available: totalReserved < totalOpened,
+        available: isInReservation ? false : true,
     });
 }));
 // start the Express server

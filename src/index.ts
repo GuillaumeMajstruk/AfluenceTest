@@ -9,12 +9,15 @@ app.get(
   "/reservations",
   (req, res, next) => {
     const { date, resourceId } = req.query;
+    const currentDate = new Date(date as string);
     try {
-      if (!date || !resourceId) {
-        throw new Error("date param or resourceId param is missing");
+      if (!currentDate || !resourceId) {
+        throw new Error(
+          "date is incorrect or missing or resourceId param is missing"
+        );
       }
       res.locals = {
-        date,
+        date: currentDate,
         resourceId,
       };
     } catch (e) {
@@ -26,7 +29,9 @@ app.get(
   async (req, res) => {
     const { date, resourceId } = res.locals;
     const rawSlots = await axios.get(
-      `${baseUrl}/timetables?date=${date}&resourceId=${resourceId}`
+      `${baseUrl}/timetables?date=${date
+        .toISOString()
+        .slice(0, 10)}&resourceId=${resourceId}`
     );
     const openingSlots = rawSlots.data;
     const { open, timetables } = openingSlots;
@@ -37,24 +42,31 @@ app.get(
       });
     }
 
-    let totalOpened = 0;
-    for (const time of timetables) {
-      totalOpened +=
-        new Date(time.closing).getHours() - new Date(time.opening).getHours();
+    const isInOpenSlot: boolean = (timetables as any[]).some(
+      (time) =>
+        date >= new Date(time.opening + "Z") &&
+        date <= new Date(time.closing + "Z")
+    );
+
+    if (!isInOpenSlot) {
+      return res.json({
+        available: false,
+      });
     }
 
     const rawReservations = await axios.get(
-      `${baseUrl}/reservations?date=${date}&resourceId=${resourceId}`
+      `${baseUrl}/reservations?date=${date
+        .toISOString()
+        .slice(0, 10)}&resourceId=${resourceId}`
     );
-    const reservations = rawReservations.data;
-    let totalReserved = 0;
-    for (const reservation of reservations.reservations) {
-      totalReserved +=
-        new Date(reservation.reservationEnd).getHours() -
-        new Date(reservation.reservationStart).getHours();
-    }
+    const { reservations } = rawReservations.data;
+    const isInReservation = (reservations as any[]).some(
+      (resa) =>
+        date >= new Date(resa.reservationStart + "Z") &&
+        date <= new Date(resa.reservationEnd + "Z")
+    );
     return res.json({
-      available: totalReserved < totalOpened,
+      available: isInReservation ? false : true,
     });
   }
 );
